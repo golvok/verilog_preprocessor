@@ -43,12 +43,19 @@ public:
 	size_t getLowerBound(size_t dim_number) { return dimension_sizes.at(dim_number-1).first;  }
 	size_t getUpperBound(size_t dim_number) { return dimension_sizes.at(dim_number-1).second; }
 	size_t getNumDimensions() { return dimension_sizes.size(); }
-	WireInfo() : name(), type(), dimension_sizes() {}
+	WireInfo()
+		: name()
+		, type()
+		, use_custom_firstdim_decl(false)
+		, custom_firstdim_decl()
+		, dimension_sizes() { }
 	string makeDeclaration();
 	static std::pair<bool,WireInfo> parseWire(string&);
 private:
 	string name;
 	string type;
+	bool use_custom_firstdim_decl;
+	sting custom_firstdim_decl;
 	vector<std::pair<size_t,size_t>> dimension_sizes;
 };
 
@@ -589,16 +596,20 @@ std::pair<bool,WireInfo> WireInfo::parseWire(string& decl) {
 		success = false;
 	} else {
 		for (auto bracket_location : bracket_locations) {
-			std::pair<size_t,size_t> dim_pair = parseVectorDeclation(
-				decl.substr(
-					bracket_location + 1,
-					decl.find_first_of("]",bracket_location) - (bracket_location + 1)
-				)
-			);
-			if (dim_pair.first > dim_pair.second) {
-				std::swap(dim_pair.first, dim_pair.second);
+			try {
+				std::pair<size_t,size_t> dim_pair = parseVectorDeclation(
+					decl.substr(
+						bracket_location + 1,
+						decl.find_first_of("]",bracket_location) - (bracket_location + 1)
+					)
+				);
+				if (dim_pair.first > dim_pair.second) {
+					std::swap(dim_pair.first, dim_pair.second);
+				}
+				wire_info.dimension_sizes.push_back(dim_pair);
+			} catch (std::invalid_argument& e) {
+				
 			}
-			wire_info.dimension_sizes.push_back(dim_pair);
 			// cerr << "dim\n";
 		}
 		string::size_type first_closing_bracket = decl.find_first_of("]", 0);
