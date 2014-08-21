@@ -139,7 +139,7 @@ void macro_expansion_pass(istream& is, ostream& os) {
 					// lines += is.get();
 					// lines += readUntil(is,"\n",false);
 					// lines += is.get();
-					cerr 
+					cerr
 						<< "macro \""<<directive<<"\" has not been defined\n"
 						// << "near " << lines << "\n"
 						;
@@ -227,7 +227,7 @@ void module_redeclaration_pass(istream& is, ostream& os) {
 				if (needs_redecl) {
 					for (size_t i = 0; i < module_params.size(); ++i) {
 						string::size_type position_of_reg = string::npos;
-						if (module_param_types[i].find("output") != string::npos 
+						if (module_param_types[i].find("output") != string::npos
 							&& (position_of_reg = module_param_types[i].find("reg")) != string::npos) {
 							// the case of an output reg
 							string rest_of_type = module_param_types[i].substr(position_of_reg + 3);
@@ -356,7 +356,7 @@ void twodim_reduction_pass_rewrite(
 			break;
 		}
 
-		
+
 		// see if the last n chars match a declared twodim (of length n)
 		{
 			string found_match = "";
@@ -482,7 +482,7 @@ Macro::Macro(istream& is)
 		} else {
 			line += '\n';
 			body += line;
-			line.clear(); 
+			line.clear();
 			if (!found_backslash) {
 				break;
 			}
@@ -504,7 +504,7 @@ Macro::Macro(istream& is)
 
 string Macro::expand(const vector<string>& args) {
 	if (args.size() != params.size()) {
-		cerr << 
+		cerr <<
 			"num given args ("<<args.size()<<") and expected params ("<<params.size()<<")"
 			" differ for macro \""<<name<<"\"\n";
 		exit(1);
@@ -526,7 +526,7 @@ string Macro::expand(const vector<string>& args) {
 string WireInfo::makeDeclaration() {
 	ostringstream builder;
 	for (size_t i = getLowerBound(2); i <= getUpperBound(2); ++i) {
-		builder 
+		builder
 			<< getType() << " [" << getUpperBound(1) << ":" << getLowerBound(1) << "] "
 			<< getName() << "_" << i << ";\n";
 	}
@@ -539,7 +539,7 @@ std::pair<size_t,size_t> parseVectorDeclation(const string& decl) {
 	istringstream second_dim_decl(
 		trim(decl)
 	);
-	
+
 	result.first = mathEval(readUntil(second_dim_decl, ":", true));
 	second_dim_decl.get(); // consume ':'
 	result.second = mathEval(second_dim_decl);
@@ -547,8 +547,8 @@ std::pair<size_t,size_t> parseVectorDeclation(const string& decl) {
 }
 
 std::pair<bool,WireInfo> WireInfo::parseWire(string& decl) {
-	cerr << "parsing wire/reg: `" << decl << "'\n";
-	
+	// cerr << "parsing wire/reg: `" << decl << "'\n";
+
 	bool success = false;
 	WireInfo wire_info;
 	trim(decl);
@@ -575,9 +575,9 @@ std::pair<bool,WireInfo> WireInfo::parseWire(string& decl) {
 	}
 
 	wire_info.type = trim(decl.substr(0, end_of_type));
-	
+
 	if (bracket_locations.size() == 0) {
-		cerr << "is nodim\n";
+		// cerr << "is nodim\n";
 		wire_info.dimension_sizes.push_back(make_pair(0,0));
 		wire_info.name = trim(
 			decl.substr(
@@ -598,7 +598,7 @@ std::pair<bool,WireInfo> WireInfo::parseWire(string& decl) {
 				std::swap(dim_pair.first, dim_pair.second);
 			}
 			wire_info.dimension_sizes.push_back(dim_pair);
-			cerr << "dim\n";
+			// cerr << "dim\n";
 		}
 		string::size_type first_closing_bracket = decl.find_first_of("]", 0);
 		string::size_type end_of_name = decl.find_first_of(" [", first_closing_bracket + 2);
@@ -614,21 +614,21 @@ std::pair<bool,WireInfo> WireInfo::parseWire(string& decl) {
 
 	skip_to_return:
 
-	cerr 
-		<< 	"parsed WireInfo = {\n"
-			"\tname = \"" << wire_info.getName() << "\",\n"
-			"\ttype = \"" << wire_info.getType() << "\",\n"
-			"\tnum_dims = " << wire_info.getNumDimensions() << ",\n"
-	;
-	for (size_t i = 1; i <= wire_info.getNumDimensions(); ++i) {
-		cerr 
-		<<	"\tdimension["<<i<<"] = ["
-			<< wire_info.getLowerBound(i) << ':' << wire_info.getUpperBound(i)
-		<< "],\n";
-	}
-	cerr << "}\n";
+	// cerr
+	// 	<< 	"parsed WireInfo = {\n"
+	// 		"\tname = \"" << wire_info.getName() << "\",\n"
+	// 		"\ttype = \"" << wire_info.getType() << "\",\n"
+	// 		"\tnum_dims = " << wire_info.getNumDimensions() << ",\n"
+	// ;
+	// for (size_t i = 1; i <= wire_info.getNumDimensions(); ++i) {
+	// 	cerr
+	// 	<<	"\tdimension["<<i<<"] = ["
+	// 		<< wire_info.getLowerBound(i) << ':' << wire_info.getUpperBound(i)
+	// 	<< "],\n";
+	// }
+	// cerr << "}\n";
 
-	return std::make_pair(success, wire_info); 
+	return std::make_pair(success, wire_info);
 }
 
 vector<string> parseParamList(const string& params_string) {
@@ -665,7 +665,7 @@ string readUntil(istream& from, const char* until, bool ignore_initial_whitespac
 		}
 		if (from.eof()) {
 			break;
-		}		
+		}
 		if (strchr(until,c) != NULL || (newline_in_search_set && (c == '\r') ) ) {
 			// found a matching char.
 			if (c == '\n' && newline_in_search_set && from.peek() == '\r') {
