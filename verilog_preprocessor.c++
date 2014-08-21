@@ -114,6 +114,7 @@ void macro_expansion_pass(istream& is, ostream& os) {
 				Macro m(generated_define_ss);
 				name2macro.insert(make_pair(m.getName(),m));
 				// cerr << "\n`define " << generated_define;
+				// cerr << "generated `" << m.getName() << "'\n";
 			}
 		}
 		if (is.eof()) {
@@ -710,79 +711,175 @@ string skipToNextLineIfComment(char prev_char, char c, istream& is) {
 	return "";
 }
 
+std::pair<size_t,size_t> parseRange(const vector<string>& params, size_t index1, size_t index2) {
+	std::pair<size_t,size_t> range;
+	try {
+		range.first = stoi(params[index1]);
+		range.second = stoi(params[index2]);
+	} catch (const std::invalid_argument& e) {
+		cerr
+			<< "bad GENDEFINE param "<<(index1+1)<<" or "<<(index2+1)<<": '" << params[index1]
+			<< "'' or '" << params[index2] << "'\n";
+		exit(1);
+	} catch (const std::out_of_range& e) {
+		cerr
+			<< "bad GENDEFINE param "<<(index1+1)<<" or "<<(index2+1)<<" (out of range): '" << params[index1]
+			<< "'' or '" << params[index2] << "'\n";
+		exit(1);
+	}
+	return range;
+}
+
+string parseAssignmentOp(const vector<string>& params, size_t index) {
+	if (params[index] == "nonblocking") {
+		return "<=";
+	} else if (params[index] == "blocking") {
+		return "=";
+	} else {
+		cerr
+			<< "bad GENDEFINE param #"<<(index+1)<<": `"<<params[index]
+			<<"' did you mean blocking or nonblocking?\n";
+		exit(1);
+		return "";
+	}
+}
+
+enum class GendefineType : size_t {
+	NONE = 0,
+	CHOOSE_ASSIGN,
+	CHOOSE_FROM,
+	ALWAYS_LIST,
+	MOD_OP,
+};
+
+namespace std {
+	template<>
+	struct hash<GendefineType> {
+		size_t operator()(const GendefineType& gt) const {
+			return std::hash<size_t>()(static_cast<size_t>(gt));
+		}
+	};
+}
+
+const std::unordered_map<GendefineType,size_t> gendefine_argnums {
+	{GendefineType::CHOOSE_ASSIGN, 3},
+	{GendefineType::CHOOSE_FROM,   3},
+	{GendefineType::ALWAYS_LIST,   2},
+	{GendefineType::MOD_OP,        4},
+};
+
+const std::unordered_map<string,GendefineType> string2gendefine {
+	{"choose_assign", GendefineType::CHOOSE_ASSIGN},
+	{"choose_from",   GendefineType::CHOOSE_FROM  },
+	{"allways_list",  GendefineType::ALWAYS_LIST  },
+	{"mod_op",        GendefineType::MOD_OP       },
+};
+
 string generate_define(const string& params_string) {
 	vector<string> params = parseParamList(params_string);
-	if (params.size() != 4) {cerr<<"bad GENDEFINE\n"; exit(1);}
+
+	GendefineType this_gendefine_type = GendefineType::NONE;
+	{
+		auto found_gendefine_type = string2gendefine.find(params[0]);
+		if (found_gendefine_type == string2gendefine.end()) {
+			cerr << "bad GENDEFINE type in : `" << params_string << "'\n";
+			exit(1);
+		} else {
+			this_gendefine_type = found_gendefine_type->second;
+		}
+	}
+
+	if (params.size() != (gendefine_argnums.find(this_gendefine_type)->second + 1)) {
+		cerr<<"bad number of arguments to GENDEFINE: `" << params_string << "'\n";
+		exit(1);
+	}
 
 	ostringstream builder;
 
-	string assignment_op;
-	if (params[1] == "nonblocking") {
-		assignment_op = "<=";
-	} else if (params[1] == "blocking") {
-		assignment_op = "=";
-	} else {
-		cerr
-			<< "bad GENDEFINE 2nd param: `"<<params[1]
-			<<"' did you mean blocking or nonblocking?\n";
-		exit(1);
-	}
-
-	std::pair<size_t,size_t> range;
-	try {
-		range.first = stoi(params[2]);
-		range.second = stoi(params[3]);
-	} catch (const std::invalid_argument& e) {
-		cerr
-			<< "bad GENDEFINE param 3 or 4: '" << params[2]
-			<< "'' or '" << params[3] << "'\n";
-			exit(1);
-	} catch (const std::out_of_range& e) {
-		cerr << "bad GENDEFINE param 3 or 4 (out of range): '" << params[2]
-		<< "'' or '" << params[3] << "'\n";
-		exit(1);
-	}
-
 	// make the name
-	builder
-		<< params[0] << '_' << params[1] << '_' << params[2] << '_' << params[3]
-	;
-
-	string assign_to;
-	string assign_from;
-	bool assign_to_is_indexed = false;
-	bool assign_from_is_indexed = false;
-	if (params[0] == "choose_assign") {
-		builder
-			<< "(index_expr, assign_to, expression) \\\n	case (index_expr) \\\n"
-		;
-		assign_to = "assign_to";
-		assign_to_is_indexed = true;
-		assign_from = "expression";
-		assign_from_is_indexed = false;
-	} else if (params[0] == "choose_from") {
-		builder
-			<< "(index_expr, assign_to, assign_from) \\\n	case (index_expr) \\\n"
-		;
-		assign_to = "assign_to";
-		assign_to_is_indexed = false;
-		assign_from = "assign_from";
-		assign_from_is_indexed = true;
+	builder << params[0];
+	for (size_t i = 1; i < params.size(); ++i) {
+		builder << '_' << params[i];
 	}
 
-	for (size_t i = range.first; i <= range.second; ++i) {
-		builder << "\t\t'd" << i << ':' << assign_to;
-		if (assign_to_is_indexed) {
-			builder << '[' << i << ']';
-		}
-		builder << ' ' << assignment_op << ' ' << assign_from;
-		if (assign_from_is_indexed) {
-			builder << '[' << i << ']';
-		}
-		builder << "; \\\n";
+	switch (this_gendefine_type) {
+		case GendefineType::CHOOSE_ASSIGN:
+		case GendefineType::CHOOSE_FROM: {
+			std::pair<size_t,size_t> range = parseRange(params,2,3);
+			string assignment_op = parseAssignmentOp(params,1);
+
+			string assign_to;
+			string assign_from;
+			bool assign_to_is_indexed = false;
+			bool assign_from_is_indexed = false;
+			if (params[0] == "choose_assign") {
+				builder
+					<< "(index_expr, assign_to, expression) \\\n\tcase (index_expr) \\\n"
+				;
+				assign_to = "assign_to";
+				assign_to_is_indexed = true;
+				assign_from = "expression";
+				assign_from_is_indexed = false;
+			} else if (params[0] == "choose_from") {
+				builder
+					<< "(index_expr, assign_to, assign_from) \\\n\tcase (index_expr) \\\n"
+				;
+				assign_to = "assign_to";
+				assign_to_is_indexed = false;
+				assign_from = "assign_from";
+				assign_from_is_indexed = true;
+			}
+
+			for (size_t i = range.first; i <= range.second; ++i) {
+				builder << "\t\t'd" << i << ':' << assign_to;
+				if (assign_to_is_indexed) {
+					builder << '[' << i << ']';
+				}
+				builder << ' ' << assignment_op << ' ' << assign_from;
+				if (assign_from_is_indexed) {
+					builder << '[' << i << ']';
+				}
+				builder << "; \\\n";
+			}
+
+			builder << "\tendcase";
+		} break;
+		case GendefineType::ALWAYS_LIST: {
+			std::pair<size_t,size_t> range = parseRange(params,1,2);
+			builder << "(wire_name) \\\n";
+			for (size_t i = range.first; i <= range.second; ++i) {
+				builder << "wire_name[" << i << "]";
+				if (i != range.second) {
+					builder << " or ";
+				}
+			}
+		} break;
+		case GendefineType::MOD_OP: {
+			string assignment_op = parseAssignmentOp(params,1);
+			auto range = parseRange(params,3,4);
+			size_t mod_by = 1;
+			try {
+				mod_by = stoi(params[2]);
+			} catch (const std::invalid_argument& e) {
+				cerr << "bad GENDEFINE param #2 in `" << params_string << "'\n";
+				exit(1);
+			} catch (const std::out_of_range& e) {
+				cerr << "bad GENDEFINE param #2 (out of range) in `" << params_string << "'\n";
+				exit(1);
+			}
+			builder << "(input, output) \\\n\tcase (input) \\\n";
+			for (size_t i = range.first; i <= range.second; ++i) {
+				builder
+					<< "\t\t'd" << i << ": output " << assignment_op << ' ' << (i % mod_by) << "; \\\n"
+				;
+			}
+			builder << "\tendcase";
+		} break;
+		case GendefineType::NONE:
+		break;
 	}
 
-	builder << "endcase";
+
 	return builder.str();
 }
 
