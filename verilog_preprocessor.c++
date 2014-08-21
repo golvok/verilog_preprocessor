@@ -75,11 +75,11 @@ int main() {
 	{
 		stringstream with_redeclared_modules;
 		{
-			// stringstream with_expanded_macros;
+			stringstream with_expanded_macros;
 			{
-				macro_expansion_pass(cin, with_redeclared_modules);
+				macro_expansion_pass(cin, with_expanded_macros);
 			}
-			// module_redeclaration_pass(with_expanded_macros, with_redeclared_modules);
+			module_redeclaration_pass(with_expanded_macros, with_redeclared_modules);
 		}
 		twodim_reduction_pass(with_redeclared_modules, cout);
 	}
@@ -90,11 +90,23 @@ int main() {
 void macro_expansion_pass(istream& is, ostream& os) {
 	unordered_map<string,Macro> name2macro;
 
+	char prev_char = '\0';
 	while (true) {
 		int c = is.get();
 		if (is.eof()) {
 			break;
 		}
+
+		string comment_line = skipToNextLineIfComment(prev_char,c,is);
+		if (comment_line.size() > 0) {
+			os.put(c);
+			c = is.get();
+			os << comment_line;
+		}
+		if (is.eof()) {
+			break;
+		}
+
 		if (c == '`') {
 			string directive = trim(readUntil(is, ":;-+/*%){}[] (\n", true)); // arg.. regexes
 			if (directive == "define") {
@@ -131,6 +143,7 @@ void macro_expansion_pass(istream& is, ostream& os) {
 		} else {
 			os.put(c);
 		}
+		prev_char = c;
 	}
 }
 
@@ -141,6 +154,17 @@ void module_redeclaration_pass(istream& is, ostream& os) {
 		if (is.eof()) {
 			break;
 		}
+
+		string comment_line = skipToNextLineIfComment(prev_char,c,is);
+		if (comment_line.size() > 0) {
+			os.put(c);
+			c = is.get();
+			os << comment_line;
+		}
+		if (is.eof()) {
+			break;
+		}
+
 		if (c == 'm' && isspace(prev_char)) {
 			is.putback(c);
 			string module_token;
@@ -155,17 +179,29 @@ void module_redeclaration_pass(istream& is, ostream& os) {
 
 				os << '(';
 
+				bool needs_redecl = false;
+				for (auto& param : module_params) {
+					if (param.find("input") || param.find("ouput")) {
+						needs_redecl = false;
+						break;
+					}
+				}
+
 				for (auto param = module_params.begin(); param != module_params.end(); ++param) {
 					string::size_type last_space_index = param->find_last_of(" ");
 					// (NOTE: whitespace is trimmed in parseParamList)
-					string name = param->substr(last_space_index);
-					os << name;
+					if (needs_redecl) {
+						string name = param->substr(last_space_index);
+						os << name;
+						module_param_names.push_back(name);
+						module_param_types.push_back(param->substr(0, last_space_index));
+					} else {
+						os << *param;
+					}
 					if ((param + 1) != module_params.end()) {
 						os << ",\n";
 					}
 
-					module_param_names.push_back(name);
-					module_param_types.push_back(param->substr(0, last_space_index));
 				}
 
 				os << ')';
@@ -175,20 +211,21 @@ void module_redeclaration_pass(istream& is, ostream& os) {
 					os << rest_of_decl << (char)is.get() << '\n';
 				}
 
-				for (size_t i = 0; i < module_params.size(); ++i) {
-					string::size_type position_of_reg = string::npos;
-					if (module_param_types[i].find("output") != string::npos 
-						&& (position_of_reg = module_param_types[i].find("reg")) != string::npos) {
-						// the case of an output reg
-						string rest_of_type = module_param_types[i].substr(position_of_reg + 3);
-						os << "output" << rest_of_type << module_param_names[i] << ";\n";
-						os << "reg   " << rest_of_type << module_param_names[i] << ";\n";
+				if (needs_redecl) {
+					for (size_t i = 0; i < module_params.size(); ++i) {
+						string::size_type position_of_reg = string::npos;
+						if (module_param_types[i].find("output") != string::npos 
+							&& (position_of_reg = module_param_types[i].find("reg")) != string::npos) {
+							// the case of an output reg
+							string rest_of_type = module_param_types[i].substr(position_of_reg + 3);
+							os << "output" << rest_of_type << module_param_names[i] << ";\n";
+							os << "reg   " << rest_of_type << module_param_names[i] << ";\n";
 
-					} else {
-						os << module_params[i] << ";\n";
+						} else {
+							os << module_params[i] << ";\n";
+						}
 					}
 				}
-
 			}
 		} else {
 			os.put(c);
