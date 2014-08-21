@@ -103,13 +103,17 @@ void macro_expansion_pass(istream& is, ostream& os) {
 
 		string comment_line = skipToNextLineIfComment(prev_char,c,is);
 		if (comment_line.size() > 0) {
-			os.put(c);
+			os << (char)c << comment_line;
 			c = is.get();
 			string gendefine_flag = "%%GENDEFINE%%";
 			if (comment_line.compare(0,gendefine_flag.size(),gendefine_flag) == 0) {
-				os << generate_define(comment_line.substr(gendefine_flag.size()));
-			} else {
-				os << comment_line;
+				string generated_define = generate_define(
+					comment_line.substr(gendefine_flag.size())
+				);
+				istringstream generated_define_ss(generated_define);
+				Macro m(generated_define_ss);
+				name2macro.insert(make_pair(m.getName(),m));
+				// cerr << "\n`define " << generated_define;
 			}
 		}
 		if (is.eof()) {
@@ -739,9 +743,9 @@ string generate_define(const string& params_string) {
 		exit(1);
 	}
 
+	// make the name
 	builder
-		<< "`define " << params[0] << '_' << params[1]
-		<< '_' << params[2] << '_' << params[3]
+		<< params[0] << '_' << params[1] << '_' << params[2] << '_' << params[3]
 	;
 
 	string assign_to;
@@ -750,7 +754,7 @@ string generate_define(const string& params_string) {
 	bool assign_from_is_indexed = false;
 	if (params[0] == "choose_assign") {
 		builder
-			<< "(index_expr, assign_to, expression) \\\n	case (index_expr) \\"
+			<< "(index_expr, assign_to, expression) \\\n	case (index_expr) \\\n"
 		;
 		assign_to = "assign_to";
 		assign_to_is_indexed = true;
@@ -758,7 +762,7 @@ string generate_define(const string& params_string) {
 		assign_from_is_indexed = false;
 	} else if (params[0] == "choose_from") {
 		builder
-			<< "(index_expr, assign_to, assign_from) \\\n	case (index_expr) \\"
+			<< "(index_expr, assign_to, assign_from) \\\n	case (index_expr) \\\n"
 		;
 		assign_to = "assign_to";
 		assign_to_is_indexed = false;
@@ -771,7 +775,7 @@ string generate_define(const string& params_string) {
 		if (assign_to_is_indexed) {
 			builder << '[' << i << ']';
 		}
-		builder << assignment_op << assign_from;
+		builder << ' ' << assignment_op << ' ' << assign_from;
 		if (assign_from_is_indexed) {
 			builder << '[' << i << ']';
 		}
