@@ -57,11 +57,15 @@ void module_redeclaration_pass(istream& is, ostream& os);
 void twodim_reduction_pass(istream& is, ostream& os);
 
 vector<string> parseParamList(istream& is);
+vector<string> parseParamList(const string& params_string);
+
 string readUntil(istream& from, const char* until, bool ignore_initial_whitespace);
 vector<string> splitAndTrim(const string& s, char delim);
 string& trim(string& str);
 string trim(const string& str);
 string skipToNextLineIfComment(char prev_char, char c, istream& is);
+
+string generate_define(const string& params);
 
 int mathEval(istream& expr);
 int mathEval(const string& s) {
@@ -101,7 +105,12 @@ void macro_expansion_pass(istream& is, ostream& os) {
 		if (comment_line.size() > 0) {
 			os.put(c);
 			c = is.get();
-			os << comment_line;
+			string gendefine_flag = "%%GENDEFINE%%";
+			if (comment_line.compare(0,gendefine_flag.size(),gendefine_flag) == 0) {
+				os << generate_define(comment_line.substr(gendefine_flag.size()));
+			} else {
+				os << comment_line;
+			}
 		}
 		if (is.eof()) {
 			break;
@@ -618,6 +627,11 @@ std::pair<bool,WireInfo> WireInfo::parseWire(string& decl) {
 	return std::make_pair(success, wire_info); 
 }
 
+vector<string> parseParamList(const string& params_string) {
+	istringstream is(trim(params_string));
+	return parseParamList(is);
+}
+
 vector<string> parseParamList(istream& is) {
 	char first_char;
 	is >> first_char;
@@ -692,6 +706,81 @@ string skipToNextLineIfComment(char prev_char, char c, istream& is) {
 	return "";
 }
 
+string generate_define(const string& params_string) {
+	vector<string> params = parseParamList(params_string);
+	if (params.size() != 4) {cerr<<"bad GENDEFINE\n"; exit(1);}
+
+	ostringstream builder;
+
+	string assignment_op;
+	if (params[1] == "nonblocking") {
+		assignment_op = "<=";
+	} else if (params[1] == "blocking") {
+		assignment_op = "=";
+	} else {
+		cerr
+			<< "bad GENDEFINE 2nd param: `"<<params[1]
+			<<"' did you mean blocking or nonblocking?\n";
+		exit(1);
+	}
+
+	std::pair<size_t,size_t> range;
+	try {
+		range.first = stoi(params[2]);
+		range.second = stoi(params[3]);
+	} catch (const std::invalid_argument& e) {
+		cerr
+			<< "bad GENDEFINE param 3 or 4: '" << params[2]
+			<< "'' or '" << params[3] << "'\n";
+			exit(1);
+	} catch (const std::out_of_range& e) {
+		cerr << "bad GENDEFINE param 3 or 4 (out of range): '" << params[2]
+		<< "'' or '" << params[3] << "'\n";
+		exit(1);
+	}
+
+	builder
+		<< "`define " << params[0] << '_' << params[1]
+		<< '_' << params[2] << '_' << params[3]
+	;
+
+	string assign_to;
+	string assign_from;
+	bool assign_to_is_indexed = false;
+	bool assign_from_is_indexed = false;
+	if (params[0] == "choose_assign") {
+		builder
+			<< "(index_expr, assign_to, expression) \\\n	case (index_expr) \\"
+		;
+		assign_to = "assign_to";
+		assign_to_is_indexed = true;
+		assign_from = "expression";
+		assign_from_is_indexed = false;
+	} else if (params[0] == "choose_from") {
+		builder
+			<< "(index_expr, assign_to, assign_from) \\\n	case (index_expr) \\"
+		;
+		assign_to = "assign_to";
+		assign_to_is_indexed = false;
+		assign_from = "assign_from";
+		assign_from_is_indexed = true;
+	}
+
+	for (size_t i = range.first; i <= range.second; ++i) {
+		builder << "\t\t'd" << i << ':' << assign_to;
+		if (assign_to_is_indexed) {
+			builder << '[' << i << ']';
+		}
+		builder << assignment_op << assign_from;
+		if (assign_from_is_indexed) {
+			builder << '[' << i << ']';
+		}
+		builder << "; \\\n";
+	}
+
+	builder << "endcase";
+	return builder.str();
+}
 
 /// algorithm from http://en.wikipedia.org/wiki/Operator-precedence_parser
 // expression ::= primary OPERATOR primary
