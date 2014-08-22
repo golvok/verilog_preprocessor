@@ -6,6 +6,7 @@
  * - remove signed, arithmetic shifts?
  * - use WireInfo in module reclaration
  *    also, make sure WireInfo handles spaces (or lack thereof) ...
+ * - fix module rewrite detector (input with space thing?)
  */
 
 #include <iostream>
@@ -56,7 +57,7 @@ private:
 	string name;
 	string type;
 	bool use_custom_firstdim_decl;
-	sting custom_firstdim_decl;
+	string custom_firstdim_decl;
 	vector<std::pair<size_t,size_t>> dimension_sizes;
 };
 
@@ -236,12 +237,19 @@ void module_redeclaration_pass(istream& is, ostream& os) {
 				if (needs_redecl) {
 					for (size_t i = 0; i < module_params.size(); ++i) {
 						string::size_type position_of_reg = string::npos;
+						string::size_type position_of_wire = string::npos;
 						if (module_param_types[i].find("output") != string::npos
 							&& (position_of_reg = module_param_types[i].find("reg")) != string::npos) {
 							// the case of an output reg
 							string rest_of_type = module_param_types[i].substr(position_of_reg + 3);
 							os << "output" << rest_of_type << module_param_names[i] << ";\n";
 							os << "reg   " << rest_of_type << module_param_names[i] << ";\n";
+
+						} else if (module_param_types[i].find("input") != string::npos
+							&& (position_of_wire = module_param_types[i].find("wire")) != string::npos) {
+							// the case of an input wire
+							string rest_of_type = module_param_types[i].substr(position_of_wire + 4);
+							os << "input" << rest_of_type << module_param_names[i] << ";\n";
 
 						} else {
 							os << module_params[i] << ";\n";
@@ -347,13 +355,15 @@ void twodim_reduction_pass_rewrite(
 			}
 		}
 
-		string comment_line = skipToNextLineIfComment(last_few_chars[0],last_few_chars[1],is);
-		if (comment_line.size() > 0) {
-			for (char c : comment_line) {
-				last_few_chars.push_back(c);
+		if (!is.eof()) {
+			string comment_line = skipToNextLineIfComment(last_few_chars[0],last_few_chars[1],is);
+			if (comment_line.size() > 0) {
+				for (char c : comment_line) {
+					last_few_chars.push_back(c);
+				}
+				flush_buffer = true;
+				goto continue_and_ouput;
 			}
-			flush_buffer = true;
-			goto continue_and_ouput;
 		}
 
 		if (is.eof()) {
@@ -533,13 +543,31 @@ string Macro::expand(const vector<string>& args) {
 }
 
 string WireInfo::makeDeclaration() {
-	ostringstream builder;
-	for (size_t i = getLowerBound(2); i <= getUpperBound(2); ++i) {
-		builder
-			<< getType() << " [" << getUpperBound(1) << ":" << getLowerBound(1) << "] "
-			<< getName() << "_" << i << ";\n";
+	string onedim_base;
+	{
+		ostringstream onedim_builder;
+
+		onedim_builder << ( (trim(getType()) == "input wire") ? "input" : getType() ) << " [";
+
+		if (use_custom_firstdim_decl) {
+			onedim_builder << custom_firstdim_decl;
+		} else {
+			onedim_builder << getUpperBound(1) << ":" << getLowerBound(1);
+		}
+		onedim_builder << "] " << getName();
+
+		onedim_base = onedim_builder.str();
 	}
-	return builder.str();
+
+	if (getNumDimensions() > 1) {
+		ostringstream builder;
+		for (size_t i = getLowerBound(2); i <= getUpperBound(2); ++i) {
+			builder << onedim_base << "_" << i << ";\n";
+		}
+		return builder.str();
+	} else {
+		return onedim_base;
+	}
 }
 
 std::pair<size_t,size_t> parseVectorDeclation(const string& decl) {
@@ -597,19 +625,19 @@ std::pair<bool,WireInfo> WireInfo::parseWire(string& decl) {
 		success = false;
 	} else {
 		for (auto bracket_location : bracket_locations) {
+			string dim_decl = decl.substr(
+				bracket_location + 1,
+				decl.find_first_of("]",bracket_location) - (bracket_location + 1)
+			);
 			try {
-				std::pair<size_t,size_t> dim_pair = parseVectorDeclation(
-					decl.substr(
-						bracket_location + 1,
-						decl.find_first_of("]",bracket_location) - (bracket_location + 1)
-					)
-				);
+				std::pair<size_t,size_t> dim_pair = parseVectorDeclation(dim_decl);
 				if (dim_pair.first > dim_pair.second) {
 					std::swap(dim_pair.first, dim_pair.second);
 				}
 				wire_info.dimension_sizes.push_back(dim_pair);
 			} catch (std::invalid_argument& e) {
-				
+				wire_info.use_custom_firstdim_decl = true;
+				wire_info.custom_firstdim_decl = dim_decl;
 			}
 			// cerr << "dim\n";
 		}
@@ -726,8 +754,8 @@ string skipToNextLineIfComment(char prev_char, char c, istream& is) {
 std::pair<size_t,size_t> parseRange(const vector<string>& params, size_t index1, size_t index2) {
 	std::pair<size_t,size_t> range;
 	try {
-		range.first = stoi(params[index1]);
-		range.second = stoi(params[index2]);
+		range.first = mathEval(params[index1]);
+		range.second = mathEval(params[index2]);
 	} catch (const std::invalid_argument& e) {
 		cerr
 			<< "bad GENDEFINE param "<<(index1+1)<<" or "<<(index2+1)<<": '" << params[index1]
@@ -783,7 +811,7 @@ const std::unordered_map<GendefineType,size_t> gendefine_argnums {
 const std::unordered_map<string,GendefineType> string2gendefine {
 	{"choose_assign", GendefineType::CHOOSE_ASSIGN},
 	{"choose_from",   GendefineType::CHOOSE_FROM  },
-	{"allways_list",  GendefineType::ALWAYS_LIST  },
+	{"always_list",  GendefineType::ALWAYS_LIST  },
 	{"mod_op",        GendefineType::MOD_OP       },
 };
 
