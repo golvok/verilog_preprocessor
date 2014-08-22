@@ -16,6 +16,7 @@
 #include <cstring>
 #include <cctype>
 #include <deque>
+#include <math.h>
 
 using namespace std;
 
@@ -74,8 +75,8 @@ string skipToNextLineIfComment(char prev_char, char c, istream& is);
 
 string generate_define(const string& params);
 
-int mathEval(istream& expr);
-int mathEval(const string& s) {
+long mathEval(istream& expr);
+long mathEval(const string& s) {
 	istringstream iss(s);
 	return mathEval(iss);
 }
@@ -903,14 +904,15 @@ unordered_map<char,int> precedence_map = {
 	{ '-' , 1 },
 	{ '*' , 2 },
 	{ '/' , 2 },
-	{ '%' , 2 }
+	{ '%' , 2 },
+	{ '^' , 3 },
 };
 
-int expression(istream& is, int lhs, int min_precedence);
-int parse_primary(istream& is);
-int do_binary_op(int lhs, int rhs, char op);
+long expression(istream& is, long lhs, long min_precedence);
+long parse_primary(istream& is);
+long do_binary_op(long lhs, long rhs, char op);
 
-int mathEval(istream& expr) {
+long mathEval(istream& expr) {
 	return expression(expr, parse_primary(expr), 0);
 }
 
@@ -919,11 +921,11 @@ int mathEval(istream& expr) {
  * has a value; a number, a parentheses enclosed expression, or a
  * constant (though the last one in currently unsupported)
  */
-int parse_primary(istream& is) {
+long parse_primary(istream& is) {
 	// read until you've found something that definite ends,
 	// or starts, (in the case of ')' ) a primary expression
-	string primary = trim(readUntil(is, "+-*/%( ",true));
-	int result = 0;
+	string primary = trim(readUntil(is, "+-*/%(^ ",true));
+	long result = 0;
 	if (is.peek() == '(') {
 		if (primary.size() != 0) {
 			cerr << "Bad primary. Unexpected `" <<primary<< "' in `" <<primary<<readUntil(is,"\n",false)<< "'\n";
@@ -938,11 +940,11 @@ int parse_primary(istream& is) {
 	} else {
 		try {
 			// TODO: parse variable names here
-			result = stoi(primary);
+			result = stol(primary);
 		} catch (const std::invalid_argument& e) {
-			cerr << "bad int: " << primary << "\n"; throw e;
+			cerr << "bad long: " << primary << "\n"; throw e;
 		} catch (const std::out_of_range& e) {
-			cerr << "int out of range: " << primary << "\n"; throw e;
+			cerr << "long out of range: " << primary << "\n"; throw e;
 		}
 	}
 	return result;
@@ -961,25 +963,25 @@ int parse_primary(istream& is) {
 //         lhs := the result of applying op with operands lhs and rhs
 //     return lhs
 
-int expression(istream& is, int lhs, int min_precedence) {
+long expression(istream& is, long lhs, long min_precedence) {
 	while (true) {
 		char this_op;
 		if (!(is >> this_op)) {
 			break;
 		}
-		int this_op_precedence = precedence_map.find(this_op)->second;
+		long this_op_precedence = precedence_map.find(this_op)->second;
 		if (this_op_precedence < min_precedence) {
 			is.putback(this_op);
 			return lhs;
 		}
-		int rhs = parse_primary(is);
+		long rhs = parse_primary(is);
 		while (true) {
 			char next_op = 0;
 			if (!(is >> next_op)) {
 				break;
 			}
 			// TODO: support right-associative operators (eg. unary ones)
-			int next_op_precedence = precedence_map.find(next_op)->second;
+			long next_op_precedence = precedence_map.find(next_op)->second;
 			is.putback(next_op);
 			if (next_op_precedence <= this_op_precedence) {
 				break;
@@ -991,13 +993,14 @@ int expression(istream& is, int lhs, int min_precedence) {
 	return lhs;
 }
 
-int do_binary_op(int lhs, int rhs, char op) {
+long do_binary_op(long lhs, long rhs, char op) {
 	switch (op) {
 		case '*': return lhs * rhs;
 		case '/': return lhs / rhs;
 		case '+': return lhs + rhs;
 		case '-': return lhs - rhs;
 		case '%': return lhs % rhs;
+		case '^': return lround(pow(lhs,rhs));
 		default :
 			cerr << "bad operator : '" << op << "'\n";
 			exit(1);
