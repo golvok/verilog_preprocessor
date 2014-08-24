@@ -786,7 +786,7 @@ string parseAssignmentOp(const vector<string>& params, size_t index) {
 
 enum class GendefineType : size_t {
 	NONE = 0,
-	CHOOSE_ASSIGN,
+	CHOOSE_TO,
 	CHOOSE_FROM,
 	ALWAYS_LIST,
 	MOD_OP,
@@ -802,14 +802,14 @@ namespace std {
 }
 
 const std::unordered_map<GendefineType,size_t> gendefine_argnums {
-	{GendefineType::CHOOSE_ASSIGN, 3},
+	{GendefineType::CHOOSE_TO,     3},
 	{GendefineType::CHOOSE_FROM,   3},
 	{GendefineType::ALWAYS_LIST,   2},
 	{GendefineType::MOD_OP,        4},
 };
 
 const std::unordered_map<string,GendefineType> string2gendefine {
-	{"choose_assign", GendefineType::CHOOSE_ASSIGN},
+	{"choose_to", GendefineType::CHOOSE_TO},
 	{"choose_from",   GendefineType::CHOOSE_FROM  },
 	{"always_list",  GendefineType::ALWAYS_LIST  },
 	{"mod_op",        GendefineType::MOD_OP       },
@@ -843,7 +843,7 @@ string generate_define(const string& params_string) {
 	}
 
 	switch (this_gendefine_type) {
-		case GendefineType::CHOOSE_ASSIGN:
+		case GendefineType::CHOOSE_TO:
 		case GendefineType::CHOOSE_FROM: {
 			std::pair<size_t,size_t> range = parseRange(params,2,3);
 			string assignment_op = parseAssignmentOp(params,1);
@@ -918,7 +918,6 @@ string generate_define(const string& params_string) {
 		case GendefineType::NONE:
 		break;
 	}
-
 
 	return builder.str();
 }
