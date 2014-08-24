@@ -7,6 +7,7 @@
  * - use WireInfo in module reclaration
  *    also, make sure WireInfo handles spaces (or lack thereof) ...
  * - fix module rewrite detector (input with space thing?)
+ * - output wire...
  */
 
 #include <iostream>
@@ -123,7 +124,7 @@ void macro_expansion_pass(istream& is, ostream& os) {
 				Macro m(generated_define_ss);
 				name2macro.insert(make_pair(m.getName(),m));
 				// cerr << "\n`define " << generated_define;
-				// cerr << "generated `" << m.getName() << "'\n";
+				cerr << "generated `" << m.getName() << "'\n";
 			}
 		}
 		if (is.eof()) {
@@ -204,8 +205,8 @@ void module_redeclaration_pass(istream& is, ostream& os) {
 
 				bool needs_redecl = false;
 				for (auto& param : module_params) {
-					if (param.find("input") || param.find("ouput")) {
-						needs_redecl = false;
+					if (param.find("input ") || param.find("output ")) {
+						needs_redecl = true;
 						break;
 					}
 				}
@@ -709,10 +710,11 @@ string readUntil(istream& from, const char* until, bool ignore_initial_whitespac
 		}
 		if (strchr(until,c) != NULL || (newline_in_search_set && (c == '\r') ) ) {
 			// found a matching char.
-			if (c == '\n' && newline_in_search_set && from.peek() == '\r') {
-				from.get(); // consume '\r'
+			if (c == '\r' && newline_in_search_set && from.peek() == '\n') {
+				// do nothing; leave the \n in the stream
+			} else {
+				from.putback(c);
 			}
-			from.putback(c);
 			break;
 		} else {
 			result += c;
