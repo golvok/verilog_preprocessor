@@ -7,7 +7,9 @@
  * - use WireInfo in module reclaration
  *    also, make sure WireInfo handles spaces (or lack thereof) ...
  * - fix module rewrite detector (input with space thing?)
- * - output wire...
+ * - output wire... put this, and others, like signed and input wire in a final touches
+ *    pass. should simplify things.
+ *   Lain
  */
 
 #include <iostream>
@@ -18,6 +20,7 @@
 #include <cstring>
 #include <cctype>
 #include <deque>
+#include <stack>
 #include <math.h>
 
 using namespace std;
@@ -65,6 +68,7 @@ private:
 void macro_expansion_pass(istream& is, ostream& os);
 void module_redeclaration_pass(istream& is, ostream& os);
 void twodim_reduction_pass(istream& is, ostream& os);
+void final_touches_pass(istream& is, ostream& os);
 
 vector<string> parseParamList(istream& is);
 vector<string> parseParamList(const string& params_string);
@@ -85,7 +89,7 @@ long mathEval(const string& s) {
 
 int main() {
 
-	// stringstream with_reduced_twodims;
+	stringstream with_reduced_twodims;
 	{
 		stringstream with_redeclared_modules;
 		{
@@ -95,9 +99,9 @@ int main() {
 			}
 			module_redeclaration_pass(with_expanded_macros, with_redeclared_modules);
 		}
-		twodim_reduction_pass(with_redeclared_modules, cout);
+		twodim_reduction_pass(with_redeclared_modules, with_reduced_twodims);
 	}
-
+	final_touches_pass(with_reduced_twodims,cout);
 	return 0;
 }
 
@@ -291,12 +295,6 @@ void module_redeclaration_pass(istream& is, ostream& os) {
 							string rest_of_type = module_param_types[i].substr(position_of_reg + 3);
 							os << "output" << rest_of_type << module_param_names[i] << ";\n";
 							os << "reg   " << rest_of_type << module_param_names[i] << ";\n";
-
-						} else if (module_param_types[i].find("input") != string::npos
-							&& (position_of_wire = module_param_types[i].find("wire")) != string::npos) {
-							// the case of an input wire
-							string rest_of_type = module_param_types[i].substr(position_of_wire + 4);
-							os << "input" << rest_of_type << module_param_names[i] << ";\n";
 
 						} else {
 							os << module_params[i] << ";\n";
@@ -514,6 +512,121 @@ void twodim_reduction_pass_rewrite(
 		flush_buffer = false;
 	}
 
+}
+
+vector<std::pair<string,string>> ft_strings_to_find {
+	{" signed ", " "},
+	{"output wire", "output"},
+	{"input wire", "input"},
+	{"'h", "32'h"},
+};
+
+void final_touches_pass(istream& is, ostream& os) {
+
+	size_t buffer_size = 0;
+	unordered_multimap<size_t,string> length2name;
+
+	for (const auto& string_to_find : ft_strings_to_find) {
+		length2name.insert(make_pair(string_to_find.first.size(),string_to_find.first));
+		if (string_to_find.first.size() > buffer_size) {
+			buffer_size = string_to_find.first.size();
+		}
+	}
+
+	deque<char> last_few_chars;
+	bool flush_buffer = false;
+
+	while (true) {
+		while (last_few_chars.size() < buffer_size) {
+			last_few_chars.push_back(is.get());
+			if (is.eof()) {
+				last_few_chars.pop_back();
+				break;
+			}
+		}
+
+		if (!is.eof()) {
+			string comment_line = skipToNextLineIfComment(last_few_chars[0],last_few_chars[1],is);
+			if (comment_line.size() > 0) {
+				for (char c : comment_line) {
+					last_few_chars.push_back(c);
+				}
+				flush_buffer = true;
+				goto continue_and_ouput;
+			}
+		}
+
+		if (is.eof()) {
+			// flush buffer & exit
+			while (!last_few_chars.empty()) {
+				os.put(last_few_chars.front());
+				last_few_chars.pop_front();
+			}
+			break;
+		}
+
+
+		// see if the last n chars match a declared twodim (of length n)
+		{
+			string found_match = "";
+			// cerr << "comparing with `" << last_few_chars << "'\n";
+			for (size_t i = 1; i <= buffer_size; ++i) { // must iterate from smallest to largest
+				auto range = length2name.equal_range(i);
+				if (range.first != length2name.end()) {
+					// have entries of this size
+					// cerr << "looking at twodims of size "<< i << '\n';
+					for (auto l2name_iter = range.first; l2name_iter != range.second; ++l2name_iter) {
+						string& name = l2name_iter->second;
+						// cerr << "\tlooking at `" << name << "'\n";
+						bool found_divergence = false;
+						auto last_char = last_few_chars.rbegin();
+						for (
+							auto char_in_name = name.rbegin();
+							char_in_name != name.rend() && last_char != last_few_chars.rend();
+							++char_in_name, ++last_char
+						) {
+							if (*char_in_name != *last_char) {
+								found_divergence = true;
+								break;
+							}
+						}
+						if (!found_divergence) {
+							found_match = name;
+							// cerr << name << " matches\n";
+						}
+					}
+				}
+			}
+			string output_str = "";
+			if (found_match == " signed ") {
+				output_str = " "; // eat it
+			} else if (found_match == "output wire") {
+				output_str = "output";
+			} else if (found_match == "input wire") {
+				output_str = "input";
+			}
+			if (output_str.size() > 0) {
+				// cerr << "found: " << found_match << " replacing with: " << output_str << "\n";
+				for (size_t i = 0; i < found_match.size(); ++i) {
+					last_few_chars.pop_back();
+				}
+				for (char c : output_str) {
+					last_few_chars.push_back(c);
+				}
+			}
+		}
+
+		continue_and_ouput:
+		while (
+			last_few_chars.size() >= buffer_size
+			|| (flush_buffer && !last_few_chars.empty())
+		) {
+			os.put(last_few_chars.front());
+			// cerr.put(last_few_chars.front());
+			last_few_chars.pop_front();
+		}
+		flush_buffer = false;
+	}
 }
 
 Macro::Macro(istream& is)
