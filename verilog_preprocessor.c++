@@ -101,8 +101,25 @@ int main() {
 	return 0;
 }
 
+class IfdefState {
+public:
+	IfdefState() : in_disabled_ifdef_block(false), found_good_branch() {}
+	void enterIfdef() { found_good_branch.push(false); }
+	void exitIfdef() { found_good_branch.pop(); setInDisabledIfdefBlock(false); }
+	void setInDisabledIfdefBlock(bool b) { in_disabled_ifdef_block = b; }
+	bool getInDisabledIfdefBlock() { return in_disabled_ifdef_block; }
+	bool foundGoodBranchAlready() { return found_good_branch.top(); }
+	void setFoundGoodBranch(bool b) { found_good_branch.pop(); found_good_branch.push(b); }
+private:
+	bool in_disabled_ifdef_block;
+	std::stack<bool> found_good_branch;
+	IfdefState(const IfdefState&) = delete;
+	IfdefState& operator=(const IfdefState&) = delete;
+};
+
 void macro_expansion_pass(istream& is, ostream& os) {
 	unordered_map<string,Macro> name2macro;
+	IfdefState ifdef_state{};
 
 	char prev_char = '\0';
 	while (true) {
@@ -113,7 +130,9 @@ void macro_expansion_pass(istream& is, ostream& os) {
 
 		string comment_line = skipToNextLineIfComment(prev_char,c,is);
 		if (comment_line.size() > 0) {
-			os << (char)c << comment_line;
+			if (!ifdef_state.getInDisabledIfdefBlock()) {
+				os << (char)c << comment_line;
+			}
 			c = is.get();
 			string gendefine_flag = "%%GENDEFINE%%";
 			if (comment_line.compare(0,gendefine_flag.size(),gendefine_flag) == 0) {
@@ -124,7 +143,7 @@ void macro_expansion_pass(istream& is, ostream& os) {
 				Macro m(generated_define_ss);
 				name2macro.insert(make_pair(m.getName(),m));
 				// cerr << "\n`define " << generated_define;
-				cerr << "generated `" << m.getName() << "'\n";
+				// cerr << "generated `" << m.getName() << "'\n";
 			}
 		}
 		if (is.eof()) {
@@ -133,15 +152,42 @@ void macro_expansion_pass(istream& is, ostream& os) {
 
 		if (c == '`') {
 			string directive = trim(readUntil(is, ":;-+/*%){}[] (\n", true)); // arg.. regexes
-			if (directive == "define") {
+			if (directive == "define" && !ifdef_state.getInDisabledIfdefBlock()) {
 				Macro m(is);
 				name2macro.insert(make_pair(m.getName(),m));
 				if (m.isEmptyMacro()) {
 					os << "`define " << m.getName() << '\n';
 				}
-			} else if (directive == "ifdef" || directive == "else" || directive == "endif") {
-				os << '`' << directive;
-			} else {
+			} else if (directive == "ifdef") {
+				ifdef_state.enterIfdef();
+				string test_name = trim(readUntil(is," \n",true));
+				if (name2macro.find(test_name) != name2macro.end()) {
+					// macro is defined
+					ifdef_state.setFoundGoodBranch(true);
+					ifdef_state.setInDisabledIfdefBlock(false);
+				} else {
+					ifdef_state.setInDisabledIfdefBlock(true);
+				}
+			} else if (directive == "elseif") {
+				string test_name = trim(readUntil(is," \n",true));
+				if (
+					! ifdef_state.foundGoodBranchAlready()
+					&& name2macro.find(test_name) != name2macro.end()) {
+					ifdef_state.setInDisabledIfdefBlock(false);
+					ifdef_state.setFoundGoodBranch(true);
+				} else {
+					ifdef_state.setInDisabledIfdefBlock(true);
+				}
+			} else if (directive == "else") {
+				if (ifdef_state.foundGoodBranchAlready()) {
+					ifdef_state.setInDisabledIfdefBlock(true);
+				} else {
+					ifdef_state.setInDisabledIfdefBlock(false);
+					ifdef_state.setFoundGoodBranch(true);
+				}
+			} else if (directive == "endif") {
+				ifdef_state.exitIfdef();
+			} else if (!ifdef_state.getInDisabledIfdefBlock()) {
 				auto lookup_result = name2macro.find(directive);
 				if (lookup_result == name2macro.end()) {
 					// string lines = readUntil(is,"\n",false);
@@ -164,7 +210,7 @@ void macro_expansion_pass(istream& is, ostream& os) {
 					os << lookup_result->second.expand(param_list);
 				}
 			}
-		} else {
+		} else if (!ifdef_state.getInDisabledIfdefBlock()) {
 			os.put(c);
 		}
 		prev_char = c;
