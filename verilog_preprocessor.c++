@@ -1013,7 +1013,7 @@ string generate_define(const string& params_string) {
 			string assign_from;
 			bool assign_to_is_indexed = false;
 			bool assign_from_is_indexed = false;
-			if (params[0] == "choose_assign") {
+			if (this_gendefine_type == GendefineType::CHOOSE_TO) {
 				builder
 					<< "(index_expr, assign_to, expression) \\\n\tcase (index_expr) \\\n"
 				;
@@ -1021,7 +1021,7 @@ string generate_define(const string& params_string) {
 				assign_to_is_indexed = true;
 				assign_from = "expression";
 				assign_from_is_indexed = false;
-			} else if (params[0] == "choose_from") {
+			} else if (this_gendefine_type == GendefineType::CHOOSE_FROM) {
 				builder
 					<< "(index_expr, assign_to, assign_from) \\\n\tcase (index_expr) \\\n"
 				;
@@ -1032,7 +1032,12 @@ string generate_define(const string& params_string) {
 			}
 
 			for (size_t i = range.first; i <= range.second; ++i) {
-				builder << "\t\t'd" << i << ':' << assign_to;
+				if (i == range.second) {
+					builder << "\t\tdefault";
+				} else {
+					builder << "\t\t'd" << i;
+				}
+				builder << ':' << assign_to;
 				if (assign_to_is_indexed) {
 					builder << '[' << i << ']';
 				}
