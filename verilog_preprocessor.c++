@@ -28,6 +28,7 @@ using namespace std;
 class Macro {
 public:
 	Macro(istream& is);
+	Macro(string name, const vector<string>& params, string body);
 	string getName() { return name; }
 	string expand(const vector<string>& args);
 	bool isEmptyMacro() { return body.size() == 0; }
@@ -65,7 +66,7 @@ private:
 	vector<std::pair<size_t,size_t>> dimension_sizes;
 };
 
-void macro_expansion_pass(istream& is, ostream& os);
+void macro_expansion_pass(istream& is, ostream& os, const vector<string>& predef_macros);
 void module_redeclaration_pass(istream& is, ostream& os);
 void twodim_reduction_pass(istream& is, ostream& os);
 void final_touches_pass(istream& is, ostream& os);
@@ -87,7 +88,13 @@ long mathEval(const string& s) {
 	return mathEval(iss);
 }
 
-int main() {
+int main(int argc, char** argv) {
+	vector<string> predef_macros;
+	for (int i = 0; i < argc; ++i) {
+		if (strlen(argv[i]) > 2 && argv[i][0] == '-' && argv[i][1] == 'D') {
+			predef_macros.push_back(argv[i]+2);
+		}
+	}
 
 	stringstream with_reduced_twodims;
 	{
@@ -95,7 +102,7 @@ int main() {
 		{
 			stringstream with_expanded_macros;
 			{
-				macro_expansion_pass(cin, with_expanded_macros);
+				macro_expansion_pass(cin, with_expanded_macros, predef_macros);
 			}
 			module_redeclaration_pass(with_expanded_macros, with_redeclared_modules);
 		}
@@ -121,8 +128,11 @@ private:
 	IfdefState& operator=(const IfdefState&) = delete;
 };
 
-void macro_expansion_pass(istream& is, ostream& os) {
+void macro_expansion_pass(istream& is, ostream& os, const vector<string>& predef_macros) {
 	unordered_map<string,Macro> name2macro;
+	for (const string& predef_macro_name : predef_macros) {
+		name2macro.insert(make_pair(predef_macro_name, Macro(predef_macro_name, {}, "")));
+	}
 	IfdefState ifdef_state{};
 
 	char prev_char = '\0';
@@ -628,6 +638,15 @@ void final_touches_pass(istream& is, ostream& os) {
 		flush_buffer = false;
 	}
 }
+
+Macro::Macro(string name_, const vector<string>& params_, string body_)
+	: is_function_like(params_.size() != 0)
+	, params(params_)
+	, body(body_)
+	, name(name_) {
+
+}
+
 
 Macro::Macro(istream& is)
 	: is_function_like(false)
